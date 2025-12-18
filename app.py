@@ -3,7 +3,7 @@ import pandas as pd
 import numpy as np
 import plotly.express as px
 import plotly.graph_objects as go
-from sklearn.ensemble import RandomForestRegressor, GradientBoostingRegressor
+from sklearn.ensemble import RandomForestRegressor
 from sklearn.linear_model import LinearRegression
 from sklearn.cluster import KMeans
 from sklearn.preprocessing import StandardScaler
@@ -38,7 +38,10 @@ def load_data():
         df['Month'] = df['Date'].dt.month_name()
         df['Month_Num'] = df['Date'].dt.month
         df['Day_Index'] = df['Date'].dt.dayofweek
-        df['Day_of_Year'] = df['Date'].dt.dayofyear
+        
+        # --- FIXED TYPO HERE (Capital 'O') ---
+        df['Day_Of_Year'] = df['Date'].dt.dayofyear 
+        
         df['Is_Weekend'] = df['Day_Index'].apply(lambda x: 1 if x >= 5 else 0)
         
         # Trend Feature (Days since start)
@@ -114,7 +117,6 @@ if df is not None:
         corr_cols = ['Footfall', 'Revenue_AED', 'Avg_Ticket_AED', 'Conversion_Rate', 'Orders']
         corr_matrix = df_filtered[corr_cols].corr()
         
-        # Fix: Using zmin/zmax instead of zmid for px.imshow
         fig_corr = px.imshow(corr_matrix, text_auto=".2f", color_continuous_scale="RdBu", zmin=-1, zmax=1)
         st.plotly_chart(fig_corr, use_container_width=True)
 
@@ -249,7 +251,10 @@ if df is not None:
             # Feature Engineering for Future
             future_df['Day_Index'] = future_df['Date'].dt.dayofweek
             future_df['Month_Num'] = future_df['Date'].dt.month
+            
+            # --- FIXED TYPO HERE (Capital 'O') ---
             future_df['Day_Of_Year'] = future_df['Date'].dt.dayofyear
+            
             future_df['Is_Weekend'] = future_df['Day_Index'].apply(lambda x: 1 if x >= 5 else 0)
             start_date = df['Date'].min()
             future_df['Days_Since_Start'] = (future_df['Date'] - start_date).dt.days
