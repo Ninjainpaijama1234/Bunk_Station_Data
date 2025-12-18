@@ -115,7 +115,10 @@ if df is not None:
         corr_cols = ['Footfall', 'Revenue_AED', 'Avg_Ticket_AED', 'Conversion_Rate', 'Orders']
         corr_matrix = df_filtered[corr_cols].corr()
         
-        fig_corr = px.imshow(corr_matrix, text_auto=".2f", color_continuous_scale="RdBu", zmid=0,
+        # --- FIXED SECTION ---
+        # px.imshow does NOT accept 'zmid'. Used 'zmin' and 'zmax' instead.
+        fig_corr = px.imshow(corr_matrix, text_auto=".2f", color_continuous_scale="RdBu", 
+                             zmin=-1, zmax=1, 
                              title="Correlation Heatmap")
         st.plotly_chart(fig_corr, use_container_width=True)
 
@@ -161,7 +164,8 @@ if df is not None:
                 
                 # Cluster Profiling Table
                 cluster_profile = df_filtered.groupby('Cluster')[['Footfall', 'Revenue_AED', 'Avg_Ticket_AED']].mean().reset_index()
-                cluster_profile['Description'] = ["Low Traffic / Low Rev", "Med Traffic / Med Rev", "High Traffic / High Rev"] # Simplified labeling logic
+                # Create generic labels to avoid index errors if fewer clusters found
+                cluster_profile['Description'] = [f"Segment {i+1}" for i in range(len(cluster_profile))]
                 st.dataframe(cluster_profile.style.format("{:.0f}", subset=['Footfall', 'Revenue_AED']))
             else:
                 st.warning("Not enough data for clustering")
@@ -222,7 +226,7 @@ if df is not None:
                 "Margin %": "{:.1f}%"
             }))
             
-        # 3. Sensitivity Heatmap (Re-added from previous)
+        # 3. Sensitivity Heatmap
         st.markdown("### 🌡️ Profit Sensitivity Matrix")
         st.caption("Net Profit at different Footfall & Ticket Size combinations")
         
@@ -241,6 +245,7 @@ if df is not None:
                 row_vals.append(profit)
             z_vals.append(row_vals)
             
+        # go.Heatmap correctly supports 'zmid'
         fig_sens = go.Figure(data=go.Heatmap(
             z=z_vals,
             x=[f"{x:,.0f}" for x in f_range],
