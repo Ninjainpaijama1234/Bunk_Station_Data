@@ -5,4 +5,4 @@ plotly
 scikit-learn
 matplotlib
 seaborn
-openpyxl
+statsmodels
