@@ -84,7 +84,8 @@ if df is not None:
         c2.metric("Total Footfall", f"{df_filtered['Footfall'].sum():,.0f}")
         c3.metric("Avg Conversion", f"{df_filtered['Conversion_Rate'].mean():.2f}%")
         c4.metric("Avg Ticket", f"AED {df_filtered['Avg_Ticket_AED'].mean():.2f}")
-        c5.metric("Rev Per Visitor", f"AED {(df_filtered['Revenue_AED'].sum()/df_filtered['Footfall'].sum()):.2f}")
+        val_per_visitor = df_filtered['Revenue_AED'].sum() / df_filtered['Footfall'].sum() if df_filtered['Footfall'].sum() > 0 else 0
+        c5.metric("Rev Per Visitor", f"AED {val_per_visitor:.2f}")
 
         st.markdown("---")
 
@@ -241,12 +242,14 @@ if df is not None:
                     profit = rev - var_cost - fixed_cost
                     row.append(profit)
                 z_values.append(row)
-                
+            
+            # FIXED HERE: Removed 'midpoint', used 'zmid'
             fig_matrix = go.Figure(data=go.Heatmap(
                 z=z_values,
                 x=[f"{x:,.0f}" for x in footfall_range],
                 y=[f"{y:.1f}" for y in ticket_range],
-                colorscale='RdBu', midpoint=0,
+                colorscale='RdBu', 
+                zmid=0,
                 colorbar=dict(title='Net Profit')
             ))
             fig_matrix.update_layout(
