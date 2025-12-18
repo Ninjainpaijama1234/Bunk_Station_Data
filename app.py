@@ -3,9 +3,11 @@ import pandas as pd
 import numpy as np
 import plotly.express as px
 import plotly.graph_objects as go
-from sklearn.ensemble import RandomForestRegressor, IsolationForest
+from sklearn.ensemble import RandomForestRegressor, GradientBoostingRegressor
+from sklearn.linear_model import LinearRegression
 from sklearn.cluster import KMeans
 from sklearn.preprocessing import StandardScaler
+from datetime import timedelta
 import os
 
 # --- Page Config ---
@@ -15,7 +17,7 @@ st.set_page_config(page_title="Bunk Station Analytics Pro", layout="wide")
 st.title("📊 Bunk Station: Strategic Analytics Dashboard (Pro)")
 st.markdown("""
 > **Strategic Context:** Leveraging front-loaded fixed investments (Q1 2021). 
-> This enhanced dashboard focuses on seasonality, driver analysis, and financial scenario planning.
+> This advanced dashboard now includes **AI-powered Annual Forecasting** to project ROI for the coming year.
 """)
 
 # --- 1. Data Loading ---
@@ -36,7 +38,12 @@ def load_data():
         df['Month'] = df['Date'].dt.month_name()
         df['Month_Num'] = df['Date'].dt.month
         df['Day_Index'] = df['Date'].dt.dayofweek
+        df['Day_of_Year'] = df['Date'].dt.dayofyear
         df['Is_Weekend'] = df['Day_Index'].apply(lambda x: 1 if x >= 5 else 0)
+        
+        # Trend Feature (Days since start)
+        start_date = df['Date'].min()
+        df['Days_Since_Start'] = (df['Date'] - start_date).dt.days
         
         # Safe Conversion Rate
         df['Conversion_Rate'] = df.apply(
@@ -63,7 +70,8 @@ if df is not None:
     else:
         df_filtered = df
 
-    tab1, tab2, tab3 = st.tabs(["📈 Descriptive Analytics", "🤖 AI/ML Insights", "💰 Financial Impact"])
+    # Tabs
+    tab1, tab2, tab3, tab4 = st.tabs(["📈 Descriptive", "🤖 AI/ML Insights", "💰 Financial Impact", "🔮 Future Forecasting"])
 
     # ==========================================
     # TAB 1: DESCRIPTIVE ANALYTICS
@@ -80,46 +88,34 @@ if df is not None:
 
         st.markdown("---")
 
-        # Row 1: Seasonality & Trends
         col_d1, col_d2 = st.columns(2)
-        
         with col_d1:
             st.markdown("### 🗓️ Seasonal Heatmap (Day vs Month)")
-            # Pivot for Heatmap
             pivot_table = df_filtered.pivot_table(index='Day_of_Week', columns='Month', values='Revenue_AED', aggfunc='mean')
-            # Sort days/months correctly
             days_order = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
             months_order = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"]
             pivot_table = pivot_table.reindex(days_order)
             pivot_table = pivot_table.reindex(columns=[m for m in months_order if m in pivot_table.columns])
             
-            fig_heat = px.imshow(pivot_table, text_auto=".0f", color_continuous_scale="RdBu_r", aspect="auto",
-                                 title="Avg Revenue: Spotting the 'Golden' Days")
+            fig_heat = px.imshow(pivot_table, text_auto=".0f", color_continuous_scale="RdBu_r", aspect="auto")
             st.plotly_chart(fig_heat, use_container_width=True)
 
         with col_d2:
-            st.markdown("### 📈 Revenue Trend (with 7-Day Moving Avg)")
-            # Rolling Average
+            st.markdown("### 📈 Revenue Trend (7-Day MA)")
             df_trend = df_filtered.sort_values('Date').copy()
             df_trend['7_Day_MA'] = df_trend['Revenue_AED'].rolling(window=7).mean()
             
             fig_trend = go.Figure()
             fig_trend.add_trace(go.Scatter(x=df_trend['Date'], y=df_trend['Revenue_AED'], name='Daily Revenue', line=dict(color='lightgray', width=1)))
             fig_trend.add_trace(go.Scatter(x=df_trend['Date'], y=df_trend['7_Day_MA'], name='7-Day Trend', line=dict(color='blue', width=3)))
-            fig_trend.update_layout(title="Daily Volatility vs. Underlying Trend")
             st.plotly_chart(fig_trend, use_container_width=True)
 
-        # Row 2: Correlations
         st.markdown("### 🔗 Correlation Matrix")
-        st.caption("Do high Footfall days actually lead to lower Ticket sizes? (Negative correlation)")
         corr_cols = ['Footfall', 'Revenue_AED', 'Avg_Ticket_AED', 'Conversion_Rate', 'Orders']
         corr_matrix = df_filtered[corr_cols].corr()
         
-        # --- FIXED SECTION ---
-        # px.imshow does NOT accept 'zmid'. Used 'zmin' and 'zmax' instead.
-        fig_corr = px.imshow(corr_matrix, text_auto=".2f", color_continuous_scale="RdBu", 
-                             zmin=-1, zmax=1, 
-                             title="Correlation Heatmap")
+        # Fix: Using zmin/zmax instead of zmid for px.imshow
+        fig_corr = px.imshow(corr_matrix, text_auto=".2f", color_continuous_scale="RdBu", zmin=-1, zmax=1)
         st.plotly_chart(fig_corr, use_container_width=True)
 
     # ==========================================
@@ -132,8 +128,7 @@ if df is not None:
 
         # ML 1: Feature Importance
         with col_ai1:
-            st.markdown("### 🧠 What drives Revenue most?")
-            # Train model just for importance
+            st.markdown("### 🧠 Key Revenue Drivers")
             features = ['Footfall', 'Avg_Ticket_AED', 'Conversion_Rate', 'Day_Index', 'Is_Weekend']
             X = df_filtered[features].fillna(0)
             y = df_filtered['Revenue_AED']
@@ -142,33 +137,27 @@ if df is not None:
             model.fit(X, y)
             
             imp_df = pd.DataFrame({'Feature': features, 'Importance': model.feature_importances_}).sort_values('Importance', ascending=True)
-            
             fig_imp = px.bar(imp_df, x='Importance', y='Feature', orientation='h', title="Feature Importance Analysis")
             st.plotly_chart(fig_imp, use_container_width=True)
-            st.info("💡 **Insight:** Focus your operational efforts on the top bar. If 'Footfall' is #1, marketing is key. If 'Avg Ticket' is #1, upselling is key.")
 
-        # ML 2: Clustering
+        # NEW: Price Elasticity Proxy
         with col_ai2:
-            st.markdown("### 🧩 Customer Traffic Segmentation")
-            # K-Means
-            X_cluster = df_filtered[['Footfall', 'Revenue_AED']].dropna()
-            if len(X_cluster) > 5:
-                scaler = StandardScaler()
-                X_scaled = scaler.fit_transform(X_cluster)
-                kmeans = KMeans(n_clusters=3, random_state=42)
-                df_filtered['Cluster'] = kmeans.fit_predict(X_scaled)
-                
-                fig_clus = px.scatter(df_filtered, x='Footfall', y='Revenue_AED', color=df_filtered['Cluster'].astype(str),
-                                      title="3 Types of Sales Days", labels={'Cluster': 'Segment'})
-                st.plotly_chart(fig_clus, use_container_width=True)
-                
-                # Cluster Profiling Table
-                cluster_profile = df_filtered.groupby('Cluster')[['Footfall', 'Revenue_AED', 'Avg_Ticket_AED']].mean().reset_index()
-                # Create generic labels to avoid index errors if fewer clusters found
-                cluster_profile['Description'] = [f"Segment {i+1}" for i in range(len(cluster_profile))]
-                st.dataframe(cluster_profile.style.format("{:.0f}", subset=['Footfall', 'Revenue_AED']))
-            else:
-                st.warning("Not enough data for clustering")
+            st.markdown("### 🏷️ Price Elasticity Proxy")
+            st.caption("Does a higher Avg Ticket size hurt Conversion Rate?")
+            fig_elas = px.scatter(df_filtered, x="Avg_Ticket_AED", y="Conversion_Rate", 
+                                  trendline="ols", color="Is_Weekend",
+                                  title="Ticket Price vs. Conversion Rate")
+            st.plotly_chart(fig_elas, use_container_width=True)
+
+        st.markdown("---")
+        
+        # NEW: 3D Visualization
+        st.markdown("### 🧊 The 'Revenue Cube'")
+        st.caption("Visualize the sweet spot between Footfall (X), Ticket Size (Y), and Revenue (Z)")
+        fig_3d = px.scatter_3d(df_filtered, x='Footfall', y='Avg_Ticket_AED', z='Revenue_AED',
+                               color='Revenue_AED', color_continuous_scale='Viridis', opacity=0.7)
+        fig_3d.update_layout(margin=dict(l=0, r=0, b=0, t=0), height=500)
+        st.plotly_chart(fig_3d, use_container_width=True)
 
     # ==========================================
     # TAB 3: FINANCIAL IMPACT
@@ -176,82 +165,122 @@ if df is not None:
     with tab3:
         st.subheader("Financial Stress Testing & Planning")
         
-        # Financial Inputs
-        with st.expander("⚙️ Edit Financial Assumptions", expanded=True):
-            col_f1, col_f2, col_f3 = st.columns(3)
+        # Inputs
+        with st.expander("⚙️ Financial Assumptions (Monthly)", expanded=True):
+            col_f1, col_f2 = st.columns(2)
             fixed_cost = col_f1.number_input("Monthly Fixed Cost (AED)", value=60000)
             cogs_pct = col_f2.slider("COGS % (Variable Cost)", 10, 80, 30) / 100
-            avg_rev = df_filtered['Revenue_AED'].mean() * 30 # Approx monthly
-            
+        
         col_fin1, col_fin2 = st.columns(2)
         
-        # 1. Break-Even Visual
+        # 1. Operating Leverage
         with col_fin1:
-            st.markdown("### 📉 Break-Even Analysis")
-            # Create a range of revenue scenarios
-            rev_range = np.linspace(0, avg_rev * 2, 50)
-            total_costs = fixed_cost + (rev_range * cogs_pct)
+            st.markdown("### ⚙️ Operating Leverage")
             
-            fig_be = go.Figure()
-            fig_be.add_trace(go.Scatter(x=rev_range, y=rev_range, name='Revenue', line=dict(color='green')))
-            fig_be.add_trace(go.Scatter(x=rev_range, y=total_costs, name='Total Cost', line=dict(color='red', dash='dash')))
+            # Simple DOL Calc (Contribution Margin / Operating Income)
+            total_rev = df_filtered['Revenue_AED'].sum()
+            total_var_cost = total_rev * cogs_pct
+            contribution_margin = total_rev - total_var_cost
+            # Estimate months in selection
+            num_days = (df_filtered['Date'].max() - df_filtered['Date'].min()).days + 1
+            est_months = max(1, num_days / 30)
+            total_fixed = fixed_cost * est_months
+            operating_income = contribution_margin - total_fixed
             
-            # Find crossing point
-            be_point = fixed_cost / (1 - cogs_pct)
-            
-            fig_be.add_vline(x=be_point, line_dash="dot", annotation_text=f"Break-even: {be_point:,.0f}")
-            fig_be.update_layout(title="Revenue vs. Cost Curves", xaxis_title="Revenue", yaxis_title="Amount")
-            st.plotly_chart(fig_be, use_container_width=True)
+            if operating_income > 0:
+                dol = contribution_margin / operating_income
+                st.metric("Degree of Operating Leverage", f"{dol:.2f}x", 
+                         help="For every 1% increase in Sales, Profit increases by this multiplier.")
+                st.success(f"🚀 **High Leverage:** A 10% sales boost adds **{dol*10:.1f}%** to your profits!")
+            else:
+                st.metric("Degree of Operating Leverage", "N/A (Loss Making)")
+                st.error("Currently operating below Break-Even for this period.")
 
-        # 2. Scenario Table
+        # 2. Profit Scenario
         with col_fin2:
-            st.markdown("### 🔮 Scenario Planning")
+            st.markdown("### 🔮 Next Month Profit Scenario")
+            avg_mth_rev = df_filtered['Revenue_AED'].mean() * 30
             
-            scenarios = {
-                "Scenario": ["Worst Case (-20%)", "Base Case (Current)", "Best Case (+20%)"],
-                "Monthly Revenue": [avg_rev * 0.8, avg_rev, avg_rev * 1.2],
-            }
-            df_scen = pd.DataFrame(scenarios)
-            df_scen['Variable Cost'] = df_scen['Monthly Revenue'] * cogs_pct
-            df_scen['Fixed Cost'] = fixed_cost
-            df_scen['Net Profit'] = df_scen['Monthly Revenue'] - df_scen['Variable Cost'] - df_scen['Fixed Cost']
-            df_scen['Margin %'] = (df_scen['Net Profit'] / df_scen['Monthly Revenue'] * 100).fillna(0)
+            scenarios = [-0.2, -0.1, 0, 0.1, 0.2]
+            res = []
+            for s in scenarios:
+                r = avg_mth_rev * (1 + s)
+                p = r - (r * cogs_pct) - fixed_cost
+                res.append({"Scenario": f"{s:+.0%}", "Revenue": r, "Net Profit": p})
             
-            # Formatting
-            st.table(df_scen.style.format({
-                "Monthly Revenue": "AED {:,.0f}", 
-                "Variable Cost": "AED {:,.0f}",
-                "Fixed Cost": "AED {:,.0f}",
-                "Net Profit": "AED {:,.0f}",
-                "Margin %": "{:.1f}%"
-            }))
-            
-        # 3. Sensitivity Heatmap
-        st.markdown("### 🌡️ Profit Sensitivity Matrix")
-        st.caption("Net Profit at different Footfall & Ticket Size combinations")
+            df_res = pd.DataFrame(res)
+            fig_scen = px.bar(df_res, x='Scenario', y='Net Profit', color='Net Profit',
+                              color_continuous_scale='RdBu', title="Projected Monthly Profit")
+            st.plotly_chart(fig_scen, use_container_width=True)
+
+    # ==========================================
+    # TAB 4: REVENUE FORECASTING (NEW)
+    # ==========================================
+    with tab4:
+        st.subheader("🔮 2025/2026 Revenue Forecast")
+        st.markdown("Predicting daily revenue for the next 365 days based on historical patterns.")
         
-        base_footfall = df_filtered['Footfall'].mean() * 30
-        base_ticket = df_filtered['Avg_Ticket_AED'].mean()
+        col_fore1, col_fore2 = st.columns([1, 3])
         
-        f_range = np.linspace(base_footfall * 0.7, base_footfall * 1.3, 10)
-        t_range = np.linspace(base_ticket * 0.8, base_ticket * 1.2, 10)
+        with col_fore1:
+            st.markdown("#### Model Settings")
+            model_type = st.radio("Choose Algorithm", ["Random Forest (Seasonality)", "Linear Regression (Trend)"])
+            growth_adjustment = st.slider("Manual Growth Adjust (%)", -20, 50, 0, help="Manually adjust the AI forecast up or down.") / 100
         
-        z_vals = []
-        for t in t_range:
-            row_vals = []
-            for f in f_range:
-                rev = f * t
-                profit = rev - (rev * cogs_pct) - fixed_cost
-                row_vals.append(profit)
-            z_vals.append(row_vals)
+        with col_fore2:
+            # 1. Prepare Training Data
+            train_df = df[['Day_Index', 'Month_Num', 'Day_Of_Year', 'Is_Weekend', 'Days_Since_Start', 'Revenue_AED']].dropna()
+            X_train = train_df.drop(columns=['Revenue_AED'])
+            y_train = train_df['Revenue_AED']
             
-        # go.Heatmap correctly supports 'zmid'
-        fig_sens = go.Figure(data=go.Heatmap(
-            z=z_vals,
-            x=[f"{x:,.0f}" for x in f_range],
-            y=[f"{y:.1f}" for y in t_range],
-            colorscale='RdBu', zmid=0,
-            colorbar=dict(title='Net Profit')
-        ))
-        fig_sens.update_layout(xaxis_title="Monthly Footfall", yaxis_title="Avg Ticket Size")
-        st.plotly_chart(fig_sens, use_container_width=True)
+            # 2. Select Model
+            if "Random Forest" in model_type:
+                model = RandomForestRegressor(n_estimators=200, random_state=42)
+            else:
+                model = LinearRegression()
+                
+            model.fit(X_train, y_train)
+            
+            # 3. Create Future Dataframe (Next 365 days)
+            last_date = df['Date'].max()
+            future_dates = [last_date + timedelta(days=x) for x in range(1, 366)]
+            future_df = pd.DataFrame({'Date': future_dates})
+            
+            # Feature Engineering for Future
+            future_df['Day_Index'] = future_df['Date'].dt.dayofweek
+            future_df['Month_Num'] = future_df['Date'].dt.month
+            future_df['Day_Of_Year'] = future_df['Date'].dt.dayofyear
+            future_df['Is_Weekend'] = future_df['Day_Index'].apply(lambda x: 1 if x >= 5 else 0)
+            start_date = df['Date'].min()
+            future_df['Days_Since_Start'] = (future_df['Date'] - start_date).dt.days
+            
+            # 4. Predict
+            X_future = future_df[['Day_Index', 'Month_Num', 'Day_Of_Year', 'Is_Weekend', 'Days_Since_Start']]
+            future_df['Predicted_Revenue'] = model.predict(X_future)
+            
+            # Apply Manual Adjustment
+            future_df['Predicted_Revenue'] = future_df['Predicted_Revenue'] * (1 + growth_adjustment)
+            
+            # 5. Visuals
+            st.metric("Projected Annual Revenue (Next 365 Days)", f"AED {future_df['Predicted_Revenue'].sum():,.0f}")
+            
+            # Combined Chart
+            fig_forecast = go.Figure()
+            # Historical
+            fig_forecast.add_trace(go.Scatter(x=df['Date'], y=df['Revenue_AED'], name='Historical Data', line=dict(color='gray', width=1)))
+            # Forecast
+            fig_forecast.add_trace(go.Scatter(x=future_df['Date'], y=future_df['Predicted_Revenue'], name='AI Forecast', line=dict(color='blue', width=2)))
+            
+            fig_forecast.update_layout(title="Historical vs. Forecasted Revenue", xaxis_title="Date", yaxis_title="Revenue (AED)")
+            st.plotly_chart(fig_forecast, use_container_width=True)
+            
+            # 6. Forecast Breakdown
+            future_df['Month'] = future_df['Date'].dt.month_name()
+            monthly_forecast = future_df.groupby('Month')['Predicted_Revenue'].sum().reset_index()
+            # Sort by month order
+            monthly_forecast['Month_Num'] = pd.to_datetime(monthly_forecast['Month'], format='%B').dt.month
+            monthly_forecast = monthly_forecast.sort_values('Month_Num')
+            
+            st.markdown("#### 📅 Monthly Breakdown")
+            fig_mth_fore = px.bar(monthly_forecast, x='Month', y='Predicted_Revenue', title="Projected Revenue by Month", text_auto='.2s')
+            st.plotly_chart(fig_mth_fore, use_container_width=True)
