@@ -22,7 +22,7 @@ st.markdown("""
 # --- 1. Data Loading ---
 @st.cache_data
 def load_data():
-    file_path = "Bunk_Station_Synthetic_Data.xlsx"
+    file_path = "Bunk_Station_Daily_Sales_Full_Year.csv"
     
     if not os.path.exists(file_path):
         st.error(f"❌ File not found: {file_path}. Please ensure the Excel file is in the root directory.")
