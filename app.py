@@ -10,12 +10,12 @@ from datetime import timedelta
 import os
 
 # --- Page Config ---
-st.set_page_config(page_title="Bunk Station Operational Dashboard", layout="wide")
+st.set_page_config(page_title="Bunk Station Analytics Pro", layout="wide")
 
 # --- Title ---
-st.title("📊 Bunk Station: Operational Command Center")
+st.title("📊 Bunk Station: Strategic Command Center")
 st.markdown("""
-> **Goal:** Move from "Data Viewing" to "Decision Making". Use the interactive controls below to simulate outcomes.
+> **Goal:** A complete suite for Operational Control (Today) and Strategic Planning (Tomorrow).
 """)
 
 # --- 1. Data Loading ---
@@ -36,6 +36,10 @@ def load_data():
         df['Day_Index'] = df['Date'].dt.dayofweek
         df['Day_of_Year'] = df['Date'].dt.dayofyear # Consistent naming
         df['Is_Weekend'] = df['Day_Index'].apply(lambda x: 1 if x >= 5 else 0)
+        
+        # Trend Feature (Days since start)
+        start_date = df['Date'].min()
+        df['Days_Since_Start'] = (df['Date'] - start_date).dt.days
         
         # Safe Conversion Rate
         df['Conversion_Rate'] = df.apply(
@@ -63,7 +67,7 @@ if df is not None:
         df_filtered = df
 
     # Tabs
-    tab1, tab2, tab3 = st.tabs(["📈 Descriptive & Trends", "🤖 AI Operational Insights", "💰 Financial Simulator"])
+    tab1, tab2, tab3, tab4 = st.tabs(["📈 Descriptive & Trends", "🤖 AI Operational Insights", "💰 Financial Simulator", "🔮 Future Forecasting"])
 
     # ==========================================
     # TAB 1: DESCRIPTIVE (INTERACTIVE)
@@ -228,11 +232,6 @@ if df is not None:
 
         with col_fin2:
             st.markdown("### 🎯 Path to Profit Target")
-            # How much revenue needed to hit target margin?
-            # Revenue - VarCost - Fixed = Revenue * TargetMargin
-            # Revenue * (1 - VarCost% - TargetMargin) = Fixed
-            # Revenue = Fixed / (1 - VarCost% - TargetMargin)
-            
             denom = (1 - var_cost_pct - target_margin)
             if denom > 0:
                 target_rev = fixed_cost / denom
@@ -256,3 +255,100 @@ if df is not None:
                 st.plotly_chart(fig_waterfall, use_container_width=True)
             else:
                 st.warning("Impossible Target! Variable Costs + Target Margin exceed 100%.")
+
+    # ==========================================
+    # TAB 4: STRATEGIC FORECASTING (ADDED BACK)
+    # ==========================================
+    with tab4:
+        st.subheader("🔮 2026 Strategic Scenario Planner")
+        st.markdown("Control the **Business Drivers** below to simulate your future performance.")
+        
+        # --- 1. SCENARIO CONTROLS ---
+        with st.container():
+            st.markdown("#### 🛠️ Simulation Variables")
+            col_var1, col_var2, col_var3 = st.columns(3)
+            
+            with col_var1:
+                footfall_growth = st.slider("📢 Marketing Impact (Footfall Growth)", -20, 50, 0, format="%+d%%") / 100
+                st.caption("Simulates increasing ad spend or brand awareness.")
+                
+            with col_var2:
+                price_change = st.slider("🏷️ Pricing Strategy (Ticket Change)", -10, 20, 0, format="%+d%%") / 100
+                st.caption("Simulates price hikes or discounting strategies.")
+                
+            with col_var3:
+                weekend_boost = st.slider("🎉 Weekend Promo Boost", 0, 30, 0, format="%+d%%") / 100
+                st.caption("Extra footfall specifically on Sat/Sun.")
+
+        st.markdown("---")
+
+        # --- 2. MODELING ENGINE ---
+        # We train TWO models: One for Footfall, One for Ticket Size.
+        train_df = df[['Day_Index', 'Month_Num', 'Day_of_Year', 'Is_Weekend', 'Days_Since_Start', 'Footfall', 'Avg_Ticket_AED']].dropna()
+        X = train_df[['Day_Index', 'Month_Num', 'Day_of_Year', 'Is_Weekend', 'Days_Since_Start']]
+        y_footfall = train_df['Footfall']
+        y_ticket = train_df['Avg_Ticket_AED']
+        
+        # Train Models
+        model_footfall = RandomForestRegressor(n_estimators=100, random_state=42).fit(X, y_footfall)
+        model_ticket = RandomForestRegressor(n_estimators=100, random_state=42).fit(X, y_ticket)
+        
+        # Create Future Dates (Next 365 Days)
+        last_date = df['Date'].max()
+        future_dates = [last_date + timedelta(days=x) for x in range(1, 366)]
+        future_df = pd.DataFrame({'Date': future_dates})
+        
+        # Future Features
+        future_df['Day_Index'] = future_df['Date'].dt.dayofweek
+        future_df['Month_Num'] = future_df['Date'].dt.month
+        future_df['Day_of_Year'] = future_df['Date'].dt.dayofyear
+        future_df['Is_Weekend'] = future_df['Day_Index'].apply(lambda x: 1 if x >= 5 else 0)
+        start_date = df['Date'].min()
+        future_df['Days_Since_Start'] = (future_df['Date'] - start_date).dt.days
+        
+        # Predict Base Case
+        X_future = future_df[['Day_Index', 'Month_Num', 'Day_of_Year', 'Is_Weekend', 'Days_Since_Start']]
+        future_df['Base_Footfall'] = model_footfall.predict(X_future)
+        future_df['Base_Ticket'] = model_ticket.predict(X_future)
+        
+        # --- 3. APPLY SCENARIOS ---
+        # Apply Footfall Growth + Weekend Boost
+        future_df['Adj_Footfall'] = future_df['Base_Footfall'] * (1 + footfall_growth)
+        future_df['Adj_Footfall'] = np.where(future_df['Is_Weekend'] == 1, 
+                                             future_df['Adj_Footfall'] * (1 + weekend_boost), 
+                                             future_df['Adj_Footfall'])
+        
+        # Apply Price Strategy
+        future_df['Adj_Ticket'] = future_df['Base_Ticket'] * (1 + price_change)
+        
+        # Calculate Final Revenue
+        future_df['Forecast_Revenue'] = future_df['Adj_Footfall'] * future_df['Adj_Ticket']
+
+        # --- 4. RESULTS & DOWNLOAD ---
+        total_forecast = future_df['Forecast_Revenue'].sum()
+        hist_revenue = df['Revenue_AED'].sum() 
+        
+        col_res1, col_res2 = st.columns([2, 1])
+        
+        with col_res1:
+            st.metric("💰 Total Projected Revenue (Next 365 Days)", f"AED {total_forecast:,.0f}",
+                      delta=f"{(total_forecast - hist_revenue)/hist_revenue:.1%} vs Previous Year")
+        
+        with col_res2:
+            st.markdown("<br>", unsafe_allow_html=True) # Spacer
+            csv = future_df.to_csv(index=False).encode('utf-8')
+            st.download_button(
+                label="📥 Download Forecast CSV",
+                data=csv,
+                file_name="Bunk_Station_2026_Forecast.csv",
+                mime="text/csv",
+                use_container_width=True
+            )
+
+        # --- 5. ALIGNED CHARTS ---
+        st.markdown("### 📈 Revenue Trajectory")
+        fig_main = go.Figure()
+        fig_main.add_trace(go.Scatter(x=df['Date'], y=df['Revenue_AED'], name='Historical', line=dict(color='gray', width=1)))
+        fig_main.add_trace(go.Scatter(x=future_df['Date'], y=future_df['Forecast_Revenue'], name='Forecast (Scenario)', line=dict(color='#00CC96', width=2)))
+        fig_main.update_layout(height=400, margin=dict(l=20, r=20, t=40, b=20), hovermode="x unified")
+        st.plotly_chart(fig_main, use_container_width=True)
